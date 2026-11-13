@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   build:
@@ -22,17 +21,31 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Pin a known stable Android command-line tools release rather than
-      # letting setup-android select the newest tools release automatically.
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 11076708
-
-      - name: Accept Android SDK licenses and install packages
+      # GitHub's Ubuntu runner already includes the Android SDK.
+      # Avoid setup-android: its sdkmanager bootstrap is the step
+      # that has been failing in this workflow.
+      - name: Configure preinstalled Android SDK
+        shell: bash
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          echo "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools" >> "$GITHUB_PATH"
+          echo "Using Android SDK at: ${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          ls -la "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" || true
+
+      - name: Install required Android SDK packages
+        shell: bash
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "${ANDROID_HOME}/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
+          fi
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "Could not find sdkmanager in the preinstalled Android SDK."
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
